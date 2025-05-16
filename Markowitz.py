@@ -15,7 +15,7 @@ assets = [
 start = "2019-01-01"
 end   = "2024-04-01"
 
-# === Data Download (一次多檔下載) ===
+# === Data Download ===
 raw = yf.download(
     assets,
     start=start,
@@ -23,21 +23,19 @@ raw = yf.download(
     auto_adjust=False,
     threads=True,
 )
-# 調整後收盤價 DataFrame
 df = raw["Adj Close"]
-# 日報酬率
 df_returns = df.pct_change().fillna(0)
 
 
-# === Problem 1: Equal Weight Portfolio (保持不變) ===
+# === Problem 1: Equal Weight Portfolio (保持不变) ===
 class EqualWeightPortfolio:
     def __init__(self, exclude):
         self.exclude = exclude
 
     def calculate_weights(self):
         assets_ = [c for c in df.columns if c != self.exclude]
-        n_assets = len(assets_)
-        w = 1.0 / n_assets
+        n = len(assets_)
+        w = 1.0 / n
 
         W = pd.DataFrame(0.0, index=df.index, columns=df.columns)
         W.loc[:, assets_] = w
@@ -46,7 +44,6 @@ class EqualWeightPortfolio:
     def calculate_portfolio_returns(self):
         self.calculate_weights()
         assets_ = [c for c in df.columns if c != self.exclude]
-
         pr = df_returns.copy()
         pr["Portfolio"] = (
             pr[assets_]
@@ -60,7 +57,7 @@ class EqualWeightPortfolio:
         return self.portfolio_weights, self.portfolio_returns
 
 
-# === Problem 2: Risk Parity Portfolio (修正後) ===
+# === Problem 2: Risk Parity Portfolio (修正) ===
 class RiskParityPortfolio:
     def __init__(self, exclude, lookback=50):
         self.exclude = exclude
@@ -68,7 +65,7 @@ class RiskParityPortfolio:
 
     def calculate_weights(self):
         assets_ = [c for c in df.columns if c != self.exclude]
-        W = pd.DataFrame(0.0, index=df.index, columns=df.columns)
+        W = pd.DataFrame(np.nan, index=df.index, columns=df.columns, dtype=float)
 
         for i in range(self.lookback, len(df)):
             date = df.index[i]
@@ -77,12 +74,14 @@ class RiskParityPortfolio:
             w = inv_vol / inv_vol.sum()
             W.loc[date, assets_] = w.values
 
+        # ffill then fillna(0)
+        W.ffill(inplace=True)
+        W.fillna(0, inplace=True)
         self.portfolio_weights = W
 
     def calculate_portfolio_returns(self):
         self.calculate_weights()
         assets_ = [c for c in df.columns if c != self.exclude]
-
         pr = df_returns.copy()
         pr["Portfolio"] = (
             pr[assets_]
@@ -96,7 +95,7 @@ class RiskParityPortfolio:
         return self.portfolio_weights, self.portfolio_returns
 
 
-# === Problem 3: Mean-Variance Portfolio (修正後) ===
+# === Problem 3: Mean-Variance Portfolio (修正) ===
 class MeanVariancePortfolio:
     def __init__(self, exclude, lookback=50, gamma=0):
         self.exclude = exclude
@@ -105,7 +104,7 @@ class MeanVariancePortfolio:
 
     def calculate_weights(self):
         assets_ = [c for c in df.columns if c != self.exclude]
-        W = pd.DataFrame(0.0, index=df.index, columns=df.columns)
+        W = pd.DataFrame(np.nan, index=df.index, columns=df.columns, dtype=float)
 
         for i in range(self.lookback, len(df)):
             window = df_returns[assets_].iloc[i - self.lookback : i]
@@ -118,25 +117,26 @@ class MeanVariancePortfolio:
                 env.setParam("DualReductions", 0)
                 env.start()
                 model = gp.Model(env=env)
-                w = model.addMVar(shape=n, lb=0.0, ub=1.0, name="w")
-                # 目標：μᵀw − γ/2·wᵀΣw
-                model.setObjective(mu @ w - (self.gamma / 2) * (w @ Sigma @ w), gp.GRB.MAXIMIZE)
-                model.addConstr(w.sum() == 1, name="budget")
+                w_var = model.addMVar(shape=n, lb=0.0, ub=1.0, name="w")
+                model.setObjective(mu @ w_var - (self.gamma / 2) * (w_var @ Sigma @ w_var),
+                                   gp.GRB.MAXIMIZE)
+                model.addConstr(w_var.sum() == 1, name="budget")
                 model.optimize()
 
                 if model.status in (gp.GRB.OPTIMAL, gp.GRB.SUBOPTIMAL):
-                    sol = w.X
+                    sol = w_var.X
                 else:
                     sol = np.ones(n) / n
 
-            W.iloc[i, W.columns.isin(assets_)] = sol
+            W.loc[df.index[i], assets_] = sol
 
+        W.ffill(inplace=True)
+        W.fillna(0, inplace=True)
         self.portfolio_weights = W
 
     def calculate_portfolio_returns(self):
         self.calculate_weights()
         assets_ = [c for c in df.columns if c != self.exclude]
-
         pr = df_returns.copy()
         pr["Portfolio"] = (
             pr[assets_]
@@ -162,9 +162,11 @@ class AssignmentJudge:
             return False
         for c in a.columns:
             if np.issubdtype(a[c].dtype, np.number):
-                if not np.allclose(a[c], b[c], atol=tol): return False
+                if not np.allclose(a[c], b[c], atol=tol):
+                    return False
             else:
-                if not (a[c] == b[c]).all(): return False
+                if not (a[c] == b[c]).all():
+                    return False
         return True
 
     def check_eqw(self, w):
@@ -197,7 +199,7 @@ if __name__ == "__main__":
     parser.add_argument("--score", action="append", help="Score for assignment")
     args = parser.parse_args()
 
-    # Mean-Variance 的 4 種參數組合
+    # Mean-Variance 的 4 种参数组合
     params = [
         {"exclude":"SPY"},
         {"exclude":"SPY", "gamma":100},
