@@ -27,15 +27,15 @@ df = raw["Adj Close"]
 df_returns = df.pct_change().fillna(0)
 
 
-# === Problem 1: Equal Weight Portfolio (保持不变) ===
+# === Problem 1: Equal Weight Portfolio ===
 class EqualWeightPortfolio:
     def __init__(self, exclude):
         self.exclude = exclude
 
     def calculate_weights(self):
         assets_ = [c for c in df.columns if c != self.exclude]
-        n = len(assets_)
-        w = 1.0 / n
+        n_assets = len(assets_)
+        w = 1.0 / n_assets
 
         W = pd.DataFrame(0.0, index=df.index, columns=df.columns)
         W.loc[:, assets_] = w
@@ -57,7 +57,7 @@ class EqualWeightPortfolio:
         return self.portfolio_weights, self.portfolio_returns
 
 
-# === Problem 2: Risk Parity Portfolio (修正) ===
+# === Problem 2: Risk Parity Portfolio ===
 class RiskParityPortfolio:
     def __init__(self, exclude, lookback=50):
         self.exclude = exclude
@@ -68,13 +68,11 @@ class RiskParityPortfolio:
         W = pd.DataFrame(np.nan, index=df.index, columns=df.columns, dtype=float)
 
         for i in range(self.lookback, len(df)):
-            date = df.index[i]
             window = df_returns[assets_].iloc[i - self.lookback : i]
             inv_vol = 1.0 / window.std()
             w = inv_vol / inv_vol.sum()
-            W.loc[date, assets_] = w.values
+            W.loc[df.index[i], assets_] = w.values
 
-        # ffill then fillna(0)
         W.ffill(inplace=True)
         W.fillna(0, inplace=True)
         self.portfolio_weights = W
@@ -95,7 +93,7 @@ class RiskParityPortfolio:
         return self.portfolio_weights, self.portfolio_returns
 
 
-# === Problem 3: Mean-Variance Portfolio (修正) ===
+# === Problem 3: Mean-Variance Portfolio ===
 class MeanVariancePortfolio:
     def __init__(self, exclude, lookback=50, gamma=0):
         self.exclude = exclude
@@ -199,7 +197,7 @@ if __name__ == "__main__":
     parser.add_argument("--score", action="append", help="Score for assignment")
     args = parser.parse_args()
 
-    # Mean-Variance 的 4 种参数组合
+    # Mean-Variance parameter sets
     params = [
         {"exclude":"SPY"},
         {"exclude":"SPY", "gamma":100},
