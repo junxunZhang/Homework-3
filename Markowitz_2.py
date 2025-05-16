@@ -27,30 +27,27 @@ class EqualWeightPortfolio:
         self.exclude = exclude
 
     def calculate_weights(self):
-        # 所有除 benchmark 外的資產
-        assets_ = [c for c in df.columns if c != self.exclude]
-        n = len(assets_)
-        w = 1.0 / n
-
-        # 建立完整欄位的 weights DataFrame
-        W = pd.DataFrame(0.0, index=df.index, columns=df.columns)
-        W.loc[:, assets_] = w
-        self.portfolio_weights = W
+        assets = df.columns[df.columns != self.exclude]
+        self.portfolio_weights = pd.DataFrame(index=df.index, columns=df.columns)
+        n_assets = len(assets)
+        w_equal = 1.0 / n_assets
+        self.portfolio_weights.loc[:, assets] = w_equal
+        self.portfolio_weights.ffill(inplace=True)
+        self.portfolio_weights.fillna(0, inplace=True)
 
     def calculate_portfolio_returns(self):
-        self.calculate_weights()
-        assets_ = [c for c in df.columns if c != self.exclude]
-
-        # 用 weights 跟 returns 相乘再加總
-        pr = df_returns.copy()
-        pr["Portfolio"] = (
-            pr[assets_]
-            .multiply(self.portfolio_weights[assets_], axis=1)
+        if not hasattr(self, "portfolio_weights"):
+            self.calculate_weights()
+        self.portfolio_returns = df_returns.copy()
+        assets = df.columns[df.columns != self.exclude]
+        self.portfolio_returns["Portfolio"] = (
+            self.portfolio_returns[assets]
+            .mul(self.portfolio_weights[assets])
             .sum(axis=1)
         )
-        self.portfolio_returns = pr
 
     def get_results(self):
+        self.calculate_weights()
         self.calculate_portfolio_returns()
         return self.portfolio_weights, self.portfolio_returns
 
