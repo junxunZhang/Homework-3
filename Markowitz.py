@@ -11,23 +11,21 @@ warnings.simplefilter(action="ignore", category=FutureWarning)
 
 # === Project Setup ===
 assets = [
-    "SPY","XLB","XLC","XLE","XLF","XLI",
-    "XLK","XLP","XLRE","XLU","XLV","XLY",
+    "SPY", "XLB", "XLC", "XLE", "XLF", "XLI",
+    "XLK", "XLP", "XLRE", "XLU", "XLV", "XLY"
 ]
 start = "2019-01-01"
 end   = "2024-04-01"
 
-# === Data Download (一次多檔下載) ===
+# === Data Download ===
 raw = yf.download(
     assets,
     start=start,
     end=end,
     auto_adjust=False,
-    threads=True,
+    threads=True
 )
-# 取得調整後收盤價
 df = raw["Adj Close"]
-# 計算日報酬
 df_returns = df.pct_change().fillna(0)
 
 
@@ -37,11 +35,11 @@ class EqualWeightPortfolio:
         self.exclude = exclude
 
     def calculate_weights(self):
-        assets = df.columns[df.columns != self.exclude]
-        self.portfolio_weights = pd.DataFrame(index=df.index, columns=df.columns)
-        n_assets = len(assets)
-        w_equal = 1.0 / n_assets
-        self.portfolio_weights.loc[:, assets] = w_equal
+        assets_ = df.columns[df.columns != self.exclude]
+        self.portfolio_weights = pd.DataFrame(index=df.index, columns=df.columns, dtype=float)
+        n = len(assets_)
+        w = 1.0 / n
+        self.portfolio_weights.loc[:, assets_] = w
         self.portfolio_weights.ffill(inplace=True)
         self.portfolio_weights.fillna(0, inplace=True)
 
@@ -49,10 +47,10 @@ class EqualWeightPortfolio:
         if not hasattr(self, "portfolio_weights"):
             self.calculate_weights()
         self.portfolio_returns = df_returns.copy()
-        assets = df.columns[df.columns != self.exclude]
+        assets_ = df.columns[df.columns != self.exclude]
         self.portfolio_returns["Portfolio"] = (
-            self.portfolio_returns[assets]
-            .mul(self.portfolio_weights[assets])
+            self.portfolio_returns[assets_]
+            .mul(self.portfolio_weights[assets_])
             .sum(axis=1)
         )
 
@@ -69,16 +67,16 @@ class RiskParityPortfolio:
         self.lookback = lookback
 
     def calculate_weights(self):
-        assets = df.columns[df.columns != self.exclude]
-        self.portfolio_weights = pd.DataFrame(index=df.index, columns=df.columns)
+        assets_ = df.columns[df.columns != self.exclude]
+        self.portfolio_weights = pd.DataFrame(index=df.index, columns=df.columns, dtype=float)
 
         for i in range(self.lookback, len(df)):
             date = df.index[i]
-            window = df_returns[assets].iloc[i - self.lookback : i]
+            window = df_returns[assets_].iloc[i - self.lookback : i]
             vol = window.std()
             inv_vol = 1.0 / vol
             w = inv_vol / inv_vol.sum()
-            self.portfolio_weights.loc[date, assets] = w.values
+            self.portfolio_weights.loc[date, assets_] = w.values
 
         self.portfolio_weights.ffill(inplace=True)
         self.portfolio_weights.fillna(0, inplace=True)
@@ -87,10 +85,10 @@ class RiskParityPortfolio:
         if not hasattr(self, "portfolio_weights"):
             self.calculate_weights()
         self.portfolio_returns = df_returns.copy()
-        assets = df.columns[df.columns != self.exclude]
+        assets_ = df.columns[df.columns != self.exclude]
         self.portfolio_returns["Portfolio"] = (
-            self.portfolio_returns[assets]
-            .mul(self.portfolio_weights[assets])
+            self.portfolio_returns[assets_]
+            .mul(self.portfolio_weights[assets_])
             .sum(axis=1)
         )
 
@@ -108,21 +106,21 @@ class MeanVariancePortfolio:
         self.gamma = gamma
 
     def calculate_weights(self):
-        assets = df.columns[df.columns != self.exclude]
-        self.portfolio_weights = pd.DataFrame(index=df.index, columns=df.columns)
+        assets_ = df.columns[df.columns != self.exclude]
+        self.portfolio_weights = pd.DataFrame(index=df.index, columns=df.columns, dtype=float)
 
         for i in range(self.lookback, len(df)):
             date = df.index[i]
-            window = df_returns[assets].iloc[i - self.lookback : i]
+            window = df_returns[assets_].iloc[i - self.lookback : i]
             w = self.mv_opt(window, self.gamma)
-            self.portfolio_weights.loc[date, assets] = w
+            self.portfolio_weights.loc[date, assets_] = w
 
         self.portfolio_weights.ffill(inplace=True)
         self.portfolio_weights.fillna(0, inplace=True)
 
-    def mv_opt(self, R_n, gamma):
-        Sigma = R_n.cov().values
-        mu    = R_n.mean().values
+    def mv_opt(self, R, gamma):
+        Sigma = R.cov().values
+        mu    = R.mean().values
         n     = len(mu)
 
         with gp.Env(empty=True) as env:
@@ -135,7 +133,6 @@ class MeanVariancePortfolio:
                 model.setObjective(obj, gp.GRB.MAXIMIZE)
                 model.addConstr(w.sum() == 1, name="budget")
                 model.optimize()
-
                 if model.status in (gp.GRB.OPTIMAL, gp.GRB.SUBOPTIMAL):
                     return w.X.tolist()
                 else:
@@ -145,10 +142,10 @@ class MeanVariancePortfolio:
         if not hasattr(self, "portfolio_weights"):
             self.calculate_weights()
         self.portfolio_returns = df_returns.copy()
-        assets = df.columns[df.columns != self.exclude]
+        assets_ = df.columns[df.columns != self.exclude]
         self.portfolio_returns["Portfolio"] = (
-            self.portfolio_returns[assets]
-            .mul(self.portfolio_weights[assets])
+            self.portfolio_returns[assets_]
+            .mul(self.portfolio_weights[assets_])
             .sum(axis=1)
         )
 
@@ -158,12 +155,12 @@ class MeanVariancePortfolio:
         return self.portfolio_weights, self.portfolio_returns
 
 
-# === Assignment Judge and Main ===
+# === Assignment Judge ===
 class AssignmentJudge:
     def __init__(self):
-        self.eqw_path  = "./Answer/eqw.pkl"
-        self.rp_path   = "./Answer/rp.pkl"
-        self.mv_paths  = [
+        self.eqw_path = "./Answer/eqw.pkl"
+        self.rp_path  = "./Answer/rp.pkl"
+        self.mv_paths = [
             "./Answer/mv_list_0.pkl",
             "./Answer/mv_list_1.pkl",
             "./Answer/mv_list_2.pkl",
@@ -175,37 +172,37 @@ class AssignmentJudge:
             return False
         for col in a.columns:
             if np.issubdtype(a[col].dtype, np.number):
-                if not np.allclose(a[col], b[col], atol=tol): return False
+                if not np.allclose(a[col], b[col], atol=tol):
+                    return False
             else:
-                if not (a[col] == b[col]).all(): return False
+                if not (a[col] == b[col]).all():
+                    return False
         return True
 
     def check_eqw(self, w):
         ans = pd.read_pickle(self.eqw_path)
         if self._compare(ans, w):
-            print("Problem 1 Complete - Get 20 Points"); return 20
-        print("Problem 1 Fail"); return 0
+            print("Problem 1 Complete - Get 20 Points")
+            return 20
+        print("Problem 1 Fail")
+        return 0
 
     def check_rp(self, w):
         ans = pd.read_pickle(self.rp_path)
         if self._compare(ans, w):
-            print("Problem 2 Complete - Get 20 Points"); return 20
-        print("Problem 2 Fail"); return 0
+            print("Problem 2 Complete - Get 20 Points")
+            return 20
+        print("Problem 2 Fail")
+        return 0
 
-    def check_mv(self, w_list):
-        ans_list = [pd.read_pickle(p) for p in self.mv_paths]
-        ok = all(self._compare(a, w) for a, w in zip(ans_list, w_list))
+    def check_mv(self, wl):
+        ans = [pd.read_pickle(p) for p in self.mv_paths]
+        ok = all(self._compare(a, w) for a, w in zip(ans, wl))
         if ok:
-            print("Problem 3 Complete - Get 30 points"); return 30
-        print("Problem 3 Fail"); return 0
-
-    def check_all(self):
-        total = 0
-        total += self.check_eqw(w_eqw)
-        total += self.check_rp(w_rp)
-        total += self.check_mv(w_mv_list)
-        print(f"==> total Score = {total} <==")
-        return total
+            print("Problem 3 Complete - Get 30 points")
+            return 30
+        print("Problem 3 Fail")
+        return 0
 
 
 if __name__ == "__main__":
@@ -213,39 +210,41 @@ if __name__ == "__main__":
     parser.add_argument("--score", action="append", help="Score for assignment")
     args = parser.parse_args()
 
+    # 定義 Mean-Variance 的參數組合
+    params = [
+        dict(exclude="SPY"),
+        dict(exclude="SPY", gamma=100),
+        dict(exclude="SPY", lookback=100),
+        dict(exclude="SPY", lookback=100, gamma=100),
+    ]
+
     if args.score:
         judge = AssignmentJudge()
 
         if "eqw" in args.score:
-            w_eqw, _ = EqualWeightPortfolio("SPY").get_results()
-            judge.check_eqw(w_eqw)
+            w, _ = EqualWeightPortfolio("SPY").get_results()
+            judge.check_eqw(w)
 
         if "rp" in args.score:
-            w_rp, _ = RiskParityPortfolio("SPY").get_results()
-            judge.check_rp(w_rp)
+            w, _ = RiskParityPortfolio("SPY").get_results()
+            judge.check_rp(w)
 
         if "mv" in args.score:
-            params = [
-                dict(exclude="SPY"),
-                dict(exclude="SPY", gamma=100),
-                dict(exclude="SPY", lookback=100),
-                dict(exclude="SPY", lookback=100, gamma=100),
-            ]
-            w_mv_list = []
+            w_list = []
             for p in params:
                 w, _ = MeanVariancePortfolio(**p).get_results()
-                w_mv_list.append(w)
-            judge.check_mv(w_mv_list)
+                w_list.append(w)
+            judge.check_mv(w_list)
 
         if "all" in args.score:
-            # 再次跑一次累計所有分數
-            w_eqw, _ = EqualWeightPortfolio("SPY").get_results()
-            s = judge.check_eqw(w_eqw)
-            w_rp, _ = RiskParityPortfolio("SPY").get_results()
-            s += judge.check_rp(w_rp)
-            w_mv_list = []
+            total = 0
+            w, _ = EqualWeightPortfolio("SPY").get_results()
+            total += judge.check_eqw(w)
+            w, _ = RiskParityPortfolio("SPY").get_results()
+            total += judge.check_rp(w)
+            w_list = []
             for p in params:
                 w, _ = MeanVariancePortfolio(**p).get_results()
-                w_mv_list.append(w)
-            s += judge.check_mv(w_mv_list)
-            print(f"==> total Score = {s} <==")
+                w_list.append(w)
+            total += judge.check_mv(w_list)
+            print(f"==> total Score = {total} <==")
